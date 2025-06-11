@@ -1,0 +1,67 @@
+
+const int magnetSensorPin = 7;    // Reed-Kontakt
+const int relayPin = 8;           // Relais
+#include <Wire.h>
+#include "SparkFun_VL53L1X.h"
+
+//Optional interrupt and shutdown pins.
+#define SHUTDOWN_PIN 2
+#define INTERRUPT_PIN 3
+
+SFEVL53L1X distanceSensor;
+//Uncomment the following line to use the optional shutdown and interrupt pins.
+//SFEVL53L1X distanceSensor(Wire, SHUTDOWN_PIN, INTERRUPT_PIN);
+
+void setup(void)
+{
+  pinMode(magnetSensorPin, INPUT);
+  pinMode(relayPin,OUTPUT);
+  digitalWrite(relayPin,LOW);
+  Wire.begin();
+ 
+
+  Serial.begin(9600);
+  Serial.println("ABstand Sensor läuft Test");
+
+  if (distanceSensor.begin() == true)
+  {
+    Serial.println("Sensor online!");
+  }
+  
+  distanceSensor.setDistanceModeShort();
+  //distanceSensor.setDistanceModeLong();
+
+}
+
+void loop(void)
+{
+  int sensorState = digitalRead(magnetSensorPin);
+
+
+  distanceSensor.startRanging(); //Write configuration bytes to initiate measurement
+
+  int distance = distanceSensor.getDistance(); //Get the result of the measurement from the sensor
+
+  distanceSensor.stopRanging();
+
+  //Serial.print("Distance(mm): ");
+  //Serial.print(distance);
+  if (distance < 300; sensorState == LOW){
+  
+    digitalWrite(relayPin,HIGH);
+    Serial.println("Magnet erkannt ");
+
+  } else {
+   digitalWrite(relayPin,LOW);
+   Serial.println("Kein Magent");
+  }
+
+  float distanceInches = distance * 0.0393701;
+  float distanceFeet = distanceInches / 12.0;
+  /*
+  Serial.print("\tDistance(ft): ");
+  Serial.print(distanceFeet, 2);
+  */
+  Serial.println();
+  delay(100);
+}
