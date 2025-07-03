@@ -1,15 +1,3 @@
-
-/*
-This example shows how to set up and read multiple VL53L1X sensors connected to
-the same I2C bus. Each sensor needs to have its XSHUT pin connected to a
-different Arduino pin, and you should change sensorCount and the xshutPins array
-below to match your setup.
-
-For more information, see ST's application note AN4846 ("Using multiple VL53L0X
-in a single design"). The principles described there apply to the VL53L1X as
-well.
-*/
-
 #include <Wire.h>
 #include <VL53L1X.h>
 
@@ -17,9 +5,9 @@ well.
 const uint8_t sensorCount = 2;
 int sens_val[] = {0,0};
 #define magnet_input 11
-#define relaise_2 8
-#define relaise_3 9
-#define relaise_4 10
+#define relaise_1 8
+#define relaise_2 9
+#define relaise_3 10
 
 
 // The Arduino pin connected to the XSHUT pin of each sensor.
@@ -30,8 +18,10 @@ VL53L1X sensors[sensorCount];
 void setup()
 {
   pinMode(magnet_input,INPUT_PULLUP);  
+  pinMode(relaise_1, OUTPUT);
   pinMode(relaise_2, OUTPUT);
-   
+  pinMode(relaise_3, OUTPUT);
+
   while (!Serial) {}
   Serial.begin(115200);
   Wire.begin();
@@ -80,10 +70,19 @@ void loop()
     Serial.print('\t');
   }
   Serial.println();
-  if ( sens_val[0] <= 100 || sens_val[1] <= 100 || !digitalRead(magnet_input)){
+  if ( sens_val[0] <= 100)){
+    digitalWrite(relaise_1, HIGH);
+  } else {
+    digitalWrite(relaise_1, LOW);
+  }
+  if (sens_val[1] <= 100){
     digitalWrite(relaise_2, HIGH);
   } else {
     digitalWrite(relaise_2, LOW);
-  }
- 
+  } 
+  if (!digitalRead(magnet_input)){
+    digitalWrite(relaise_3, HIGH);
+  } else {
+    digitalWrite(relaise_3, LOW);
+  }  
 }
