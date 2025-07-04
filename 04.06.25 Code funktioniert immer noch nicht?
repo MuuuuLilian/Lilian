@@ -1,0 +1,98 @@
+#include <Wire.h>
+#include <VL53L1X.h>
+
+// The number of sensors in your system.
+const uint8_t sensorCount = 2;
+int sens_val[] = {0,0};
+#define magnet_input 11
+#define relaise_1 8
+#define relaise_2 9
+#define relaise_3 10
+
+bool relais3_state = false;        
+bool last_magnet_state = HIGH;
+
+
+// The Arduino pin connected to the XSHUT pin of each sensor.
+const uint8_t xshutPins[sensorCount] = { 13, 12 };
+
+VL53L1X sensors[sensorCount];
+
+void setup()
+{
+  pinMode(magnet_input,INPUT_PULLUP);  
+  pinMode(relaise_1, OUTPUT);
+  pinMode(relaise_2, OUTPUT);
+  pinMode(relaise_3, OUTPUT);
+
+  while (!Serial) {}
+  Serial.begin(115200);
+  Wire.begin();
+  Wire.setClock(400000); // use 400 kHz I2C
+
+  // Disable/reset all sensors by driving their XSHUT pins low.
+  for (uint8_t i = 0; i < sensorCount; i++)
+  {
+    pinMode(xshutPins[i], OUTPUT);
+    digitalWrite(xshutPins[i], LOW);
+  }
+
+  // Enable, initialize, and start each sensor, one by one.
+  for (uint8_t i = 0; i < sensorCount; i++)
+  {
+    // Stop driving this sensor's XSHUT low. This should allow the carrier
+    // board to pull it high. (We do NOT want to drive XSHUT high since it is
+    // not level shifted.) Then wait a bit for the sensor to start up.
+    pinMode(xshutPins[i], INPUT);
+    delay(10);
+
+    sensors[i].setTimeout(200); //Timeout ist Wichtig.. Ihr hattet hier vorher 500ms und ich habe es nun auf 100 geändert, was dazu führt dass es stabiler läuft. 
+    if (!sensors[i].init())
+    {
+      Serial.print("Failed to detect and initialize sensor ");
+      Serial.println(i);
+      while (1);
+    }
+
+    // Each sensor must have its address changed to a unique value other than
+    // the default of 0x29 (except for the last one, which could be left at
+    // the default). To make it simple, we'll just count up from 0x2A.
+    sensors[i].setAddress(0x2A + i);
+
+    sensors[i].startContinuous(100);
+  }
+}
+
+void loop()
+{
+  for (uint8_t i = 0; i < sensorCount; i++)
+  {
+    sens_val[i]=sensors[i].read();
+    Serial.print(sens_val[i]);
+    if (sensors[i].timeoutOccurred()) { Serial.println(" TIMEOUT"); }
+    Serial.print('\t');
+  }
+  //Serial.println();
+  if ( sens_val[0] <= 100){
+    digitalWrite(relaise_1, HIGH);
+  } else {
+    digitalWrite(relaise_1, LOW);
+  }
+  if (sens_val[1] <= 100){
+    digitalWrite(relaise_2, HIGH);
+   
+  } else {
+    digitalWrite(relaise_2, LOW);
+
+  } 
+  bool current_magnet_state = digitalRead(magnet_input);
+
+ if (last_magnet_state == HIGH && current_magnet_state == LOW) {
+    relais3_state = !relais3_state;
+    digitalWrite(relaise_3, relais3_state ? HIGH : LOW);
+ }
+
+ last_magnet_state = current_magnet_state;
+  delay(100);
+}
+
