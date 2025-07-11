@@ -10,6 +10,22 @@ int sens_val[] = {0,0};
 #define relaise_3 10
 
 
+#include <WiFiS3.h>
+#include <WiFiUdp.h>
+#include <OSCMessage.h>
+
+// WiFi Setup
+const char* ssid = "EasyBox-640692";
+const char* password = "ZiDTuMtLdMMXB5HX";
+// OSC destination
+IPAddress outIp(192, 168, 2, 109);
+unsigned int outPort1 = 8070;
+WiFiUDP Udp;
+unsigned long lastSend = 0;
+const unsigned long sendInterval = 1000;
+int valueToSend = 0; 
+
+
 // The Arduino pin connected to the XSHUT pin of each sensor.
 const uint8_t xshutPins[sensorCount] = { 13, 12 };
 
@@ -22,10 +38,20 @@ void setup()
   pinMode(relaise_2, OUTPUT);
   pinMode(relaise_3, OUTPUT);
 
+  digitalWrite(relaise_1, HIGH); // AUS
+  digitalWrite(relaise_2, HIGH); // AUS
+  digitalWrite(relaise_3, HIGH); // AUS -> wichtig!
+
+ while (WiFi.begin(ssid, password) != WL_CONNECTED) {
+ delay(1000);
+ }
+ Udp.begin(outPort1); 
+ delay(1000);
+
   while (!Serial) {}
-  Serial.begin(115200);
+  //Serial.begin(115200);
   Wire.begin();
-  Wire.setClock(200000); // use 400 kHz I2C
+  Wire.setClock(100000); // use 400 kHz I2C
 
   // Disable/reset all sensors by driving their XSHUT pins low.
   for (uint8_t i = 0; i < sensorCount; i++)
@@ -43,11 +69,11 @@ void setup()
     pinMode(xshutPins[i], INPUT);
     delay(10);
 
-    sensors[i].setTimeout(200); //Timeout ist Wichtig.. Ihr hattet hier vorher 500ms und ich habe es nun auf 100 geändert, was dazu führt dass es stabiler läuft. 
+    sensors[i].setTimeout(500); //Timeout ist Wichtig.. Ihr hattet hier vorher 500ms und ich habe es nun auf 100 geändert, was dazu führt dass es stabiler läuft. 
     if (!sensors[i].init())
     {
-      Serial.print("Failed to detect and initialize sensor ");
-      Serial.println(i);
+      //Serial.print("Failed to detect and initialize sensor ");
+      //Serial.println(i);
       while (1);
     }
 
@@ -56,34 +82,92 @@ void setup()
     // the default). To make it simple, we'll just count up from 0x2A.
     sensors[i].setAddress(0x2A + i);
 
-    sensors[i].startContinuous(100);
+    sensors[i].setDistanceMode(VL53L1X::Short);
+    sensors[i].setMeasurementTimingBudget(20000);
+    sensors[i].startContinuous(50);
   }
+}
+
+bool magnet_last_state = true;  // Initial auf HIGH, weil INPUT_PULLUP
+bool relaise_3_state = false;   // Anfangszustand des Relais 3
+
+bool resetSensor(uint8_t index) {
+  //Serial.print("Resetting sensor ");
+  //Serial.println(index);
+
+  // Sensor per XSHUT ausschalten
+  pinMode(xshutPins[index], OUTPUT);
+  digitalWrite(xshutPins[index], LOW);
+  delay(50);
+
+  // Sensor starten
+  pinMode(xshutPins[index], INPUT); // loslassen, damit Pullup vom Breakout greift
+  delay(50);
+
+  if (!sensors[index].init()) {
+    //Serial.print("Reinit failed for sensor ");
+    //Serial.println(index);
+    return false;
+  }
+
+  sensors[index].setAddress(0x2A + index);
+  sensors[index].startContinuous(100);
+  //Serial.print("Sensor ");
+  //Serial.print(index);
+  //Serial.println(" successfully reinitialized.");
+  return true;
 }
 
 void loop()
 {
+    unsigned long now = millis(); 
   for (uint8_t i = 0; i < sensorCount; i++)
   {
-    sens_val[i]=sensors[i].read();
-    Serial.print(sens_val[i]);
-    if (sensors[i].timeoutOccurred()) { Serial.println(" TIMEOUT"); }
-    Serial.print('\t');
+    sens_val[i] = sensors[i].read();
+    //Serial.print(sens_val[i]);
+      if (sensors[i].timeoutOccurred()) {
+        //Serial.print("Sensor ");
+        //Serial.print(i);
+        //Serial.println(" TIMEOUT – attempting reinit...");
+        resetSensor(i);
+      }
+    //Serial.print('\t');
   }
   //Serial.println();
-  if ( sens_val[0] <= 100){
-    digitalWrite(relaise_1, LOW);
-  } else {
+
+  // Steuerung für Relais 1
+  if (sens_val[0] <= 90){
     digitalWrite(relaise_1, HIGH);
+  } else {
+    digitalWrite(relaise_1, LOW);
   }
-  if (sens_val[1] <= 100){
-    digitalWrite(relaise_2, LOW);
-  } else {
+
+  // Steuerung für Relais 2
+  if (sens_val[1] <= 470){
     digitalWrite(relaise_2, HIGH);
-  } 
-  if (!digitalRead(magnet_input)){
-    digitalWrite(relaise_3, LOW);
   } else {
-    digitalWrite(relaise_3, HIGH);
-  }  
-  delay(100);
+    digitalWrite(relaise_2, LOW);
+  }
+
+  // Flankenerkennung für Magnet
+  bool magnet_current_state = digitalRead(magnet_input);
+  if (!magnet_last_state && magnet_current_state) {  // LOW → HIGH Flanke
+    relaise_3_state = !relaise_3_state;              // Zustand umschalten
+    digitalWrite(relaise_3, relaise_3_state ? LOW : HIGH);
+  }
+  magnet_last_state = magnet_current_state;
+
+ if (now - lastSend >= sendInterval) {
+ lastSend = now;
+ // Send OSC message with valueToSend (0 or 1)
+ OSCMessage msg("/toggle");
+ msg.add(sens_val[0]);
+ msg.add(",");
+ msg.add(sens_val[1]);
+ Udp.beginPacket(outIp, outPort1);
+ msg.send(Udp);
+ Udp.endPacket();
+ msg.empty();
+ // Toggle value for next send
+ }
 }
